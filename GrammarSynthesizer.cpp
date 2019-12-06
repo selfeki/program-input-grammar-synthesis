@@ -7,7 +7,7 @@
 
 class Node {
 public:
-	virtual void accept(NodeVisitor &visitor) = 0;
+	virtual Grammar accept(NodeVisitor &visitor) = 0;
 };
 
 
@@ -17,7 +17,7 @@ public:
 		: terminal{s}
 		{}
 
-	virtual void accept(NodeVisitor &visitor) { return visitor.visit(this); }
+	virtual Grammar accept(NodeVisitor &visitor) { return visitor.visit(this); }
 
 	std::string getTerminal() { return terminal; }
 
@@ -33,7 +33,7 @@ public:
 		: terminal{s}
 		{}
 
-	virtual void accept(NodeVisitor& visitor) { return visitor.visit(this); }
+	virtual Grammar accept(NodeVisitor& visitor) { return visitor.visit(this); }
 
 	std::string getTerminal() { return terminal; }
 
@@ -45,9 +45,13 @@ private:
 
 class StarNode : public Node {
 public:
-	virtual void accept(NodeVisitor& visitor) { return visitor.visit(this); }
+		StarNode(){}
+
+	virtual Grammar accept(NodeVisitor& visitor) { return visitor.visit(this); }
 
 	std::list<Node*> getChildren() { return children; }
+
+	void addChild(Node* node) { children.push_back(node); }
 
 private:
 	Node* parent;
@@ -57,10 +61,13 @@ private:
 
 class PlusNode : public Node {
 public:
+	PlusNode(){}
 
-	virtual void accept(NodeVisitor& visitor) { return visitor.visit(this); }
+	virtual Grammar accept(NodeVisitor& visitor) { return visitor.visit(this); }
 
 	std::list<Node*> getChildren() { return children; }
+
+	void addChild(Node* node) { children.push_back(node); }
 	
 private:
 	Node* parent;
@@ -70,7 +77,11 @@ private:
 
 class TerminalNode : public Node {
 public:
-	virtual void accept(NodeVisitor& visitor) { return visitor.visit(this); }
+	TerminalNode(std::string s)
+		: terminal{s}
+		{}
+
+	virtual Grammar accept(NodeVisitor& visitor) { return visitor.visit(this); }
 
 	std::string getTerminal() { return terminal; }
 	
@@ -84,42 +95,46 @@ struct Context {
 	std::string right;
 };
 
+typedef std::vector<Node*> Grammar;
 
 class NodeVisitor {
 public:
-  virtual void visit(RepNode* repNode) { }
-  virtual void visit(AltNode* altNode) { }
-  virtual void visit(StarNode* starNode) { }
-  virtual void visit(PlusNode* plusNode) { }
-  virtual void visit(TerminalNode* terminalNode) { }
+  virtual Grammar visit(RepNode* repNode) { }
+  virtual Grammar visit(AltNode* altNode) { }
+  virtual Grammar visit(StarNode* starNode) { }
+  virtual Grammar visit(PlusNode* plusNode) { }
+  virtual Grammar visit(TerminalNode* terminalNode) { }
 };
 
 
-class getContextVisitor: public NodeVisitor {
-	
-	Node* root;
-	Node* target;
+class GetContextVisitor: public NodeVisitor {
 
-	void
+public:
+	GetContextVisitor(Node* r, Node* t)
+		: root(r),
+			target(t)
+		{ }
+	
+	Grammar
 	visit(StarNode* starNode) {
 		for (Node* child : starNode->getChildren()) {
 			child->accept(*this);
 		}
 	}
 
-	void
+	Grammar
 	visit(PlusNode* plusNode) {
 		for (Node* child : plusNode->getChildren()) {
 			child->accept(*this);
 		}
 	}
 
-	void
+	Grammar
 	visit(TerminalNode* terminalNode) {
 		currentCtxt->append(terminalNode->getTerminal());
 	}
 
-	void
+	Grammar
 	visit(RepNode* repNode) {
 		if (repNode == target) {
 			currentCtxt = &ctxt.right;
@@ -128,7 +143,7 @@ class getContextVisitor: public NodeVisitor {
 		currentCtxt->append(repNode->getTerminal());
 	}
 
-	void
+	Grammar
 	visit(AltNode* altNode) {
 		if (altNode == target) {
 			currentCtxt = &ctxt.right;
@@ -137,11 +152,17 @@ class getContextVisitor: public NodeVisitor {
 		currentCtxt->append(altNode->getTerminal());
 	}
 
-	std::string* currentCtxt = &ctxt.left;
+	Context getContext() { return ctxt; }
+
+private:
+	Node* 	root;
+	Node* 	target;
 	Context ctxt;
+	std::string* currentCtxt = &ctxt.left;
 };
 
-class GeneralizeVisitor {
+
+class GeneralizeVisitor : public NodeVisitor {
 public:
 	GeneralizeVisitor(Node *r, bool (*predFunc)(std::string))
 	: root(r),
@@ -164,31 +185,55 @@ public:
 	// }
 
 
-	void
-	visit(const RepNode *repNode) {
-
-		CreateContextVisitor getContextVisitor(root, repNode);
+	Grammar
+	visit(RepNode* repNode) {
+		if (isGeneralized) { return {}; }
+		GetContextVisitor getContextVisitor(root, repNode);
 		root->accept(getContextVisitor);
+		Context context = getContextVisitor.getContext();
 
-		Context context = getContextVisitor.context;
-
-		std::string alpha = repNode->terminal;
+		std::string alpha = repNode->getTerminal();
 		std::string sub1, sub2, sub3;
-
+		int length = alpha.length();
+		Grammar candidate;
 		// primary priority for shorter sub1
-		for (int i = 0; i < alpha.size(); i++) {
+		for (int i = 0; i < length; i++) {
 			// sedondary priority for longer sub2
-			for (int j = alpha.size; j > i; j--) {
-				//TODO implement checks
+			for (int j = length; j > i; j--) { // todo: debug explicitly
+				sub1 = alpha.substr(0, i);
+				sub2 = alpha.substr(i, j-i);
+				sub3 = alpha.substr(j, length - j);
+				std::vector<std::string> residuals = generateResiduals(sub1, sub2, sub3);
+
+				for (std::string res : residuals) {
+					std::string check = context.left.append(res).append(context.right);
+					if (oracle(check)) {
+						TerminalNode* decmp1 = new TerminalNode(sub1);
+						StarNode* 		decmp2 = new StarNode();
+						RepNode* 			decmp3 = new RepNode(sub3);
+						decmp2->addChild(new AltNode(sub2));
+
+						candidate.push_back(decmp1);
+						candidate.push_back(decmp2);
+						candidate.push_back(decmp3);
+						isGeneralized = true;
+						return candidate;
+					}
+				}
+
 			}
 		}
-		// TODO: need 1 last generalization
-		// in case none of the above work
+		// last resort generalization
+		candidate.push_back(new TerminalNode(alpha));
+		isGeneralized = true;
+		return candidate;
 	}
-	virtual void visit(const AltNode &altNode) {}
+	virtual void visit(AltNode &altNode) {}
 
 	Node *root;
+	bool isGeneralized = false;
 	std::function<bool (std::string)> oracle;
+	
 };
 
 class GrammarSynthesizer {
