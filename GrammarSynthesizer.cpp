@@ -1,16 +1,35 @@
+
 #include <string>
 #include <list>
 #include <vector>
 #include <functional>
 
+namespace GrammarSynthesizer {
 
-class Node {
-public:
-	virtual std::vector<Node*> accept(NodeVisitor &visitor) = 0;
-};
+class Node;
+class RepNode;
+class AltNode;
+class TerminalNode;
+class NonGeneralizableNode;
 
 
 typedef std::vector<Node*> Grammar;
+
+
+class NodeVisitor {
+public:
+  virtual Grammar visit(RepNode* repNode) { return {}; }
+  virtual Grammar visit(AltNode* altNode) {	return {}; }
+  virtual Grammar visit(TerminalNode* terminalNode) {	return {}; }
+	virtual Grammar visit(NonGeneralizableNode* starNode) {	return {}; }
+};
+
+
+class Node {
+public:
+	virtual Grammar accept(NodeVisitor &visitor) = 0;
+};
+
 
 class RepNode : public Node {
 public:
@@ -45,7 +64,7 @@ public:
 	NonGeneralizableNode(){}
 	void addChild(Node* node) { grammar.push_back(node); }
 	Grammar getGrammar() { return grammar; }
-	Grammar setGrammar(Grammar newGrammar) { grammar = newGrammar; }
+	void setGrammar(Grammar newGrammar) { grammar = newGrammar; }
 	virtual Grammar accept(NodeVisitor& visitor) { return visitor.visit(this); }
 
 private:
@@ -73,16 +92,6 @@ class StarNode : public NonGeneralizableNode {};
 
 class PlusNode : public NonGeneralizableNode {};
 
-
-class NodeVisitor {
-public:
-  virtual Grammar visit(RepNode* repNode) { }
-  virtual Grammar visit(AltNode* altNode) { }
-  virtual Grammar visit(TerminalNode* terminalNode) { }
-	virtual Grammar visit(NonGeneralizableNode* starNode) { }
-};
-
-
 struct Context {
 	std::string left;
 	std::string right;
@@ -98,39 +107,44 @@ public:
 	
 	Grammar
 	visit(StarNode* starNode) {
-		for (Node* child : starNode->getChildren()) {
-			child->accept(*this);
+		for (Node* node : starNode->getGrammar()) {
+			node->accept(*this);
 		}
+		return {};
 	}
 
 	Grammar
 	visit(PlusNode* plusNode) {
-		for (Node* child : plusNode->getChildren()) {
-			child->accept(*this);
+		for (Node* node : plusNode->getGrammar()) {
+			node->accept(*this);
 		}
+		return {};
 	}
 
 	Grammar
 	visit(TerminalNode* terminalNode) {
 		currentCtxt->append(terminalNode->getTerminal());
+		return {};
 	}
 
 	Grammar
 	visit(RepNode* repNode) {
 		if (repNode == target) {
 			currentCtxt = &ctxt.right;
-			return;
+			return {};
 		}
 		currentCtxt->append(repNode->getTerminal());
+		return {};
 	}
 
 	Grammar
 	visit(AltNode* altNode) {
 		if (altNode == target) {
 			currentCtxt = &ctxt.right;
-			return;
+			return {};
 		}
 		currentCtxt->append(altNode->getTerminal());
+		return {};
 	}
 
 	Context getContext() { return ctxt; }
@@ -145,7 +159,7 @@ private:
 
 class GeneralizeVisitor : public NodeVisitor {
 public:
-	GeneralizeVisitor(Node* r, bool (*predFunc)(std::string))
+	GeneralizeVisitor(Node* r, std::function<bool (std::string)> predFunc)
 	: root(r),
 		oracle(predFunc)
 	{}
@@ -161,6 +175,9 @@ public:
 		auto newLoc = grammar.erase(it);
 		grammar.insert(newLoc, newGrammar.begin(), newGrammar.end());
 	}
+
+	Grammar
+	visit(TerminalNode* terminalNode) { return {}; }
 
 	Grammar
 	visit(NonGeneralizableNode* nonGenNode) {
@@ -238,24 +255,23 @@ public:
 		Grammar candidate;
 		// priority for shorter sub1
 		for (int i = 1; i < length; i++) {
-				sub1 = alpha.substr(0, i);
-				sub2 = alpha.substr(i, length-i);
-				std::vector<std::string> residuals = {sub1, sub2};
+			sub1 = alpha.substr(0, i);
+			sub2 = alpha.substr(i, length-i);
+			std::vector<std::string> residuals = {sub1, sub2};
 
-				for (std::string res : residuals) {
-					std::string check = context.left.append(res).append(context.right);
-					if (oracle(check)) {
+			for (std::string res : residuals) {
+				std::string check = context.left.append(res).append(context.right);
+				if (oracle(check)) {
 
-						RepNode* rep	 = new RepNode(sub1);
-						AltNode* alt	 = new AltNode(sub2);
-						PlusNode* plus = new PlusNode();
-						plus->addChild(rep);
-						plus->addChild(alt);
+					RepNode* rep	 = new RepNode(sub1);
+					AltNode* alt	 = new AltNode(sub2);
+					PlusNode* plus = new PlusNode();
+					plus->addChild(rep);
+					plus->addChild(alt);
 
-						candidate.push_back(plus);
-						isGeneralized = true;
-						return candidate;
-					}
+					candidate.push_back(plus);
+					isGeneralized = true;
+					return candidate;
 				}
 			}
 		}
@@ -265,6 +281,8 @@ public:
 		return candidate;
 	}
 
+bool checkGeneralized() { return isGeneralized; }
+
 private:
 	Node* root;
 	bool isGeneralized = false;
@@ -272,37 +290,43 @@ private:
 	
 };
 
+
 class GrammarSynthesizer {
 	GrammarSynthesizer(std::string seed)
 		: grammar({new RepNode(seed)}) 
 		{}
 
-	std::vector<Node *>
+	Grammar
 	synthesizeGrammar() {
-		bool isGeneralizable = true; // todo: fix this later
+		bool isGeneralized = true;
 
-		while (isGeneralizable) {
+		while (isGeneralized) {
+			isGeneralized = false;
 
 			for (int i = grammar.size() - 1; i >= 0; i--) {
-				Node *root = grammar[i];
-				GeneralizeVisitor generalizeVisitor(root);
-				root->accept(generalizeVisitor);
+				Node* root = grammar[i];
+				GeneralizeVisitor generalizeVisitor(root, oracle);
+				Grammar newGrammar = root->accept(generalizeVisitor);
 
-				if (generalizeVisitor.foundGeneralizable()) {
-					isGeneralizable = true;
-
-					// below is unnessesary
-					// std::vector<Node*> generalized =  generalizeVisitor.generalizedGrammar;
-					// grammar.insert(grammar.begin()+i, generalized.begin(), generalized.end());
+				if (generalizeVisitor.checkGeneralized()) {
+					isGeneralized = true;
+					if (newGrammar.size() > 0) {
+						grammar.insert(grammar.begin()+i, newGrammar.begin(), newGrammar.end());
+					}
 					break;
 				}
 			}
 		}
+		return grammar;
 	}
 
 private:
 	std::vector<Node *> grammar;
+	std::function<bool (std::string)> oracle;
 };
+
+
+}
 
 int main() {
 	return 0;
