@@ -74,10 +74,29 @@ private:
 class NonGeneralizableNode : public Node {
 public:
 	NonGeneralizableNode(){}
-	void addChild(Node* node) { grammar.push_back(node); }
-	Grammar getGrammar() { return grammar; }
-	void setGrammar(Grammar newGrammar) { grammar = newGrammar; }
 	virtual Grammar accept(NodeVisitor& visitor) { return visitor.visit(this); }
+
+	Grammar 
+	getGrammar() { 
+		return grammar; 
+	}
+	
+	void 
+	setGrammar(Grammar newGrammar) { 
+		grammar = newGrammar; 
+	}
+
+	void 
+	addChild(Node* node) { 
+		grammar.push_back(node); 
+	}
+
+	void
+	replaceGrammarAt(Grammar& newGrammar, Node* toReplace) {
+		auto it 		= std::find (grammar.begin(), grammar.end(), toReplace);
+		auto newLoc = grammar.erase(it);
+		grammar.insert(newLoc, newGrammar.begin(), newGrammar.end());
+	}
 
 private:
 	Node* parent;
@@ -237,24 +256,21 @@ public:
 		return {sub1.append(sub3), sub1.append(sub2).append(sub2).append(sub3)};
 	}
 
-	void
-	replaceGrammarAt(Grammar& grammar, Grammar& newGrammar, Node* toReplace) { // TODO: bug hotspot
-		auto it 		= std::find (grammar.begin(), grammar.end(), toReplace);
-		auto newLoc = grammar.erase(it);
-		grammar.insert(newLoc, newGrammar.begin(), newGrammar.end());
-	}
-
 	Grammar
 	visit(TerminalNode* terminalNode) { return {}; }
 
 	Grammar
 	visit(StarNode* starNode) {
+		std::cout << "grammar replacement - before: ";
+		PrintVisitor pv;
+		starNode->accept(pv);
+		std::cout << std::endl;
 		Grammar grammar = starNode->getGrammar();
 		for (auto it = grammar.rbegin(); it != grammar.rend(); ++it) {
 			Node* node = *it;
-			Grammar resGrammar = node->accept(*this);
+			Grammar newGrammar = node->accept(*this);
 			if (isGeneralized) {
-				replaceGrammarAt(grammar, resGrammar, node);
+				starNode->replaceGrammarAt(newGrammar, node);
 				break;
 			}
 		}
@@ -266,9 +282,9 @@ public:
 		Grammar grammar = plusNode->getGrammar();
 		for (auto it = grammar.rbegin(); it != grammar.rend(); ++it) {
 			Node* node = *it;
-			Grammar resGrammar = node->accept(*this);
+			Grammar newGrammar = node->accept(*this);
 			if (isGeneralized) {
-				replaceGrammarAt(grammar, resGrammar, node);
+				plusNode->replaceGrammarAt(newGrammar, node);
 				break;
 			}
 		}
@@ -411,6 +427,7 @@ public:
 				return candidate;
 			}
 		}
+		std::cout << "exhausted all candidates" << std::endl;
 		// last resort generalization
 		candidate.push_back(new RepNode(alpha));
 		return candidate;
