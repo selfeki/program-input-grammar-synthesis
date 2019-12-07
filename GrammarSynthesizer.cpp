@@ -4,6 +4,7 @@
 #include <vector>
 #include <iostream>
 #include <stdlib.h>
+#include <unordered_set>
 
 #include <libxml++/libxml++.h>
 
@@ -185,6 +186,58 @@ public:
 	}
 };
 
+class ToStringVisitor : public NodeVisitor {
+public:
+  Grammar
+	visit(RepNode* repNode) {
+		std::string terminal = repNode->getTerminal();
+		result.append(terminal);
+		return {};
+	}
+
+	Grammar
+	visit(AltNode* altNode) { 
+		std::string terminal = altNode->getTerminal();
+		result.append(terminal);		
+		return {};
+	}
+
+	Grammar
+	visit(PlusNode* plusNode) {
+		Grammar grammar = plusNode->getGrammar();
+		Node* left  = grammar[0];
+		Node* right = grammar[1];
+		result.append("( ");
+		left->accept(*this);
+		result.append(" + ");
+		right->accept(*this);
+		result.append(" )");
+		return {};
+	}
+
+	Grammar
+	visit(StarNode* starNode) {
+		result.append("( ");
+		for (Node* node : starNode->getGrammar()) {
+			node->accept(*this);
+		}
+		result.append(" )*");
+		return {};
+	}
+
+	Grammar
+	visit(TerminalNode* terminalNode) { 
+		result.append(terminalNode->getTerminal());
+		return {};
+	}
+
+	std::string
+	getString() { return result; }
+
+private:
+	std::string result;
+};
+
 class GetContextVisitor: public NodeVisitor {
 public:
 	GetContextVisitor(Node* r, Node* t)
@@ -291,7 +344,6 @@ public:
 		return {};
 	}
 
-
 	std::vector<std::string>
 	getRepResiduals(std::string sub1, std::string sub2, std::string sub3) {
 		return {sub1.append(sub3), sub1.append(sub2).append(sub2).append(sub3)};
@@ -359,7 +411,10 @@ public:
 					}
 					std::cout << std::endl;
 
-					return candidate;
+					if (!isPreviouslyConsidered(candidate)) {
+						blackListCandidate(candidate);
+						return candidate;
+					}
 				}
 			}
 		}
@@ -424,7 +479,10 @@ public:
 				}
 				std::cout << std::endl;
 
-				return candidate;
+				if (!isPreviouslyConsidered(candidate)) {
+					blackListCandidate(candidate);
+					return candidate;
+				}
 			}
 		}
 		std::cout << "exhausted all candidates" << std::endl;
@@ -433,12 +491,33 @@ public:
 		return candidate;
 	}
 
+	std::string getGrammarString(Grammar& grammar) {
+		ToStringVisitor tsv;
+		for (Node* node : grammar) {
+			node->accept(tsv);
+		}
+		return tsv.getString();
+	}
+
+	bool 
+	isPreviouslyConsidered(Grammar& grammar) {
+		std::string str = getGrammarString(grammar);
+		return considered.count(str);
+	}
+
+	void
+	blackListCandidate(Grammar& candidate) {
+		std::string str = getGrammarString(candidate);
+		considered.insert(str);
+	}
+
 	bool checkGeneralized() { return isGeneralized; }
 
 private:
 	Node* root;
 	bool isGeneralized = false;
 	Oracle& oracle;
+	std::unordered_set<std::string> considered;
 };
 
 
@@ -462,10 +541,10 @@ public:
 		int count = 0;
 		while (isGeneralized) {
 			isGeneralized = false;
-
+			// todo: context must be generated at language level not withing generalization
 			for (int i = grammar.size() - 1; i >= 0; i--) {
 				Node* toGeneralize = grammar[i];
-				GeneralizeVisitor generalizeVisitor(toGeneralize, oracle);
+				GeneralizeVisitor generalizeVisitor(toGeneralize, oracle); //todo make this reusable
 				Grammar newGrammar = toGeneralize->accept(generalizeVisitor);
 
 				if (generalizeVisitor.checkGeneralized()) {
@@ -490,7 +569,7 @@ public:
 				std::cout << ", ";
 			}
 			std::cout << " ]" << std::endl;
-			if (count == 1) { exit(-1); }
+			if (count == 2) { exit(-1); }
 			count++;
 		}
 		return grammar;
