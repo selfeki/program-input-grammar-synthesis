@@ -6,9 +6,6 @@
 #include <stdlib.h>
 
 #include <libxml++/libxml++.h>
-#include <libxml++/parsers/textreader.h>
-#include <glibmm/ustring.h>
-
 
 namespace grammarSynthesizer {
 
@@ -251,8 +248,8 @@ public:
 	visit(TerminalNode* terminalNode) { return {}; }
 
 	Grammar
-	visit(NonGeneralizableNode* nonGenNode) {
-		Grammar grammar = nonGenNode->getGrammar();
+	visit(StarNode* starNode) {
+		Grammar grammar = starNode->getGrammar();
 		for (auto it = grammar.rbegin(); it != grammar.rend(); ++it) {
 			Node* node = *it;
 			Grammar resGrammar = node->accept(*this);
@@ -264,6 +261,21 @@ public:
 		return {};
 	}
 
+	Grammar
+	visit(PlusNode* plusNode) {
+		Grammar grammar = plusNode->getGrammar();
+		for (auto it = grammar.rbegin(); it != grammar.rend(); ++it) {
+			Node* node = *it;
+			Grammar resGrammar = node->accept(*this);
+			if (isGeneralized) {
+				replaceGrammarAt(grammar, resGrammar, node);
+				break;
+			}
+		}
+		return {};
+	}
+
+
 	std::vector<std::string>
 	getRepResiduals(std::string sub1, std::string sub2, std::string sub3) {
 		return {sub1.append(sub3), sub1.append(sub2).append(sub2).append(sub3)};
@@ -271,12 +283,13 @@ public:
 
 	Grammar
 	visit(RepNode* repNode) {
+		if (isGeneralized) { return {}; }
+		isGeneralized = true;
 		PrintVisitor ps;
 		std::cout << "Generalizing repNode ";
 		repNode->accept(ps);
 		std::cout << std::endl;
 		
-		if (isGeneralized) { return {}; }
 		GetContextVisitor getContextVisitor(root, repNode);
 		root->accept(getContextVisitor);
 		Context context = getContextVisitor.getContext();
@@ -303,7 +316,8 @@ public:
 
 				bool isPrecisionPreserving = true;
 				for (std::string res : residuals) {
-					std::string check = context.left.append(res).append(context.right);
+					std::string check;
+					check.append(context.left).append(res).append(context.right);
 					if (!oracle.query(check)) {
 						isPrecisionPreserving = false;
 						break;
@@ -329,27 +343,26 @@ public:
 					}
 					std::cout << std::endl;
 
-					isGeneralized = true;
 					return candidate;
 				}
 			}
 		}
 		std::cout << "exhausted all candidates" << std::endl;
-		exit(-1);
+		// exit(-1);
 		// last resort generalization
 		candidate.push_back(new TerminalNode(alpha));
-		isGeneralized = true;
 		return candidate;
 	}
 
 	Grammar
 	visit(AltNode* altNode) {
+		if (isGeneralized) { return {}; }
+		isGeneralized = true;
 		PrintVisitor ps;
 		std::cout << "Generalizing altNode ";
 		altNode->accept(ps);
 		std::cout << std::endl;
 
-		if (isGeneralized) { return {}; }
 		GetContextVisitor getContextVisitor(root, altNode);
 		root->accept(getContextVisitor);
 		Context context = getContextVisitor.getContext();
@@ -371,36 +384,35 @@ public:
 
 				bool isPrecisionPreserving = true;
 			for (std::string res : residuals) {
-				std::string check = context.left.append(res).append(context.right);
+				std::string check;
+				check.append(context.left).append(res).append(context.right);
 				if (!oracle.query(check)) {
 					isPrecisionPreserving = false;
 					break;
 				}
+			}
 
-				if (isPrecisionPreserving) {
-					RepNode* rep	 = new RepNode(sub1);
-					AltNode* alt	 = new AltNode(sub2);
-					PlusNode* plus = new PlusNode();
-					plus->addChild(rep);
-					plus->addChild(alt);
+			if (isPrecisionPreserving) {
+				RepNode* rep	 = new RepNode(sub1);
+				AltNode* alt	 = new AltNode(sub2);
+				PlusNode* plus = new PlusNode();
+				plus->addChild(rep);
+				plus->addChild(alt);
 
-					candidate.push_back(plus);
+				candidate.push_back(plus);
 
-					std::cout << "all checks pass!" << std::endl;
-					std::cout << "candidate is ";
-					for (Node* node : candidate) {
-						node->accept(ps);
-					}
-					std::cout << std::endl;
-
-					isGeneralized = true;
-					return candidate;
+				std::cout << "all checks pass!" << std::endl;
+				std::cout << "candidate is ";
+				for (Node* node : candidate) {
+					node->accept(ps);
 				}
+				std::cout << std::endl;
+
+				return candidate;
 			}
 		}
 		// last resort generalization
 		candidate.push_back(new RepNode(alpha));
-		isGeneralized = true;
 		return candidate;
 	}
 
@@ -424,11 +436,12 @@ public:
 	synthesize() {
 		bool isGeneralized = true;
 		PrintVisitor ps;
-		std::cout << "old grammar: ";
+		std::cout << "old grammar: [";
 		for (Node* node : grammar) {
 			node->accept(ps);
+			std::cout << ", ";
 		}
-		std::cout << std::endl;
+		std::cout << " ]" << std::endl;
 		int count = 0;
 		while (isGeneralized) {
 			isGeneralized = false;
@@ -450,13 +463,16 @@ public:
 					}
 					break;
 				}
+				else {
+					std::cout << "nothing to generalize" << std::endl;
+				}
 			}
-			// star.accept(ps);
-			std::cout << "new grammar: ";
+			std::cout << "new grammar: [";
 			for (Node* node : grammar) {
 				node->accept(ps);
+				std::cout << ", ";
 			}
-			std::cout << std::endl;
+			std::cout << " ]" << std::endl;
 			if (count == 1) { exit(-1); }
 			count++;
 		}
@@ -477,7 +493,7 @@ using namespace grammarSynthesizer;
 class XMLOracle : public Oracle{
 public:
 	virtual bool query(std::string check) {
-		std::cout << "checking \'" << check << "\'" << std::endl;
+		std::cout << "checking \'" << check << "\'";
 		try{
 			// create wrapper  
 			// because valid xml must have a root node
@@ -497,7 +513,7 @@ public:
 };
 
 int main() {
-	std::string seed = "<to>Tove</to><to>Tove</to>";
+	std::string seed = "<a>hi</a>";
 	XMLOracle oracle;
 	GrammarSynthesizer gs(seed, oracle);
 	Grammar grammar = gs.synthesize();
