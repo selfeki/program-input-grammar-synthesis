@@ -240,8 +240,8 @@ private:
 
 class GetContextVisitor: public NodeVisitor {
 public:
-	GetContextVisitor(Node* r, Node* t)
-		: root(r),
+	GetContextVisitor(Grammar& g, Node* t)
+		: grammar(g),
 			target(t)
 		{ }
 	
@@ -287,22 +287,27 @@ public:
 		return {};
 	}
 
-	Context getContext() { return ctxt; }
+	Context 
+	getContext() { 
+		for (Node* node : grammar) {
+			node->accept(*this);
+		}
+		return ctxt;
+	 }
 
 private:
-	Node* 	root;
-	Node* 	target;
-	Context ctxt;
+	Grammar&	grammar;
+	Node* 		target;
+	Context 	ctxt;
 	std::string* currentCtxt = &ctxt.left;
 };
 
 
 class GeneralizeVisitor : public NodeVisitor {
 public:
-	GeneralizeVisitor(Node* r, Oracle& orcl)
-	: root(r),
-		oracle(orcl)
-	{}
+	GeneralizeVisitor(Oracle& orcl)
+	: oracle(orcl)
+	{ }
 
 	std::vector<std::string>
 	generateContexts(std::string sub1, std::string sub2, std::string sub3) {
@@ -358,8 +363,7 @@ public:
 		repNode->accept(ps);
 		std::cout << std::endl;
 		
-		GetContextVisitor getContextVisitor(root, repNode);
-		root->accept(getContextVisitor);
+		GetContextVisitor getContextVisitor(rootGrammar, repNode);
 		Context context = getContextVisitor.getContext();
 		
 		std::cout << "context = (" << context.left << ", " << context.right << ")" << std::endl;
@@ -434,8 +438,7 @@ public:
 		altNode->accept(ps);
 		std::cout << std::endl;
 
-		GetContextVisitor getContextVisitor(root, altNode);
-		root->accept(getContextVisitor);
+		GetContextVisitor getContextVisitor(rootGrammar, altNode);
 		Context context = getContextVisitor.getContext();
 
 		std::cout << "context = (" << context.left << ", " << context.right << ")" << std::endl;
@@ -513,8 +516,14 @@ public:
 
 	bool checkGeneralized() { return isGeneralized; }
 
+	void 
+	init(Grammar& grammar) {
+		rootGrammar = grammar;
+		isGeneralized = false;
+	}
+
 private:
-	Node* root;
+	Grammar rootGrammar;
 	bool isGeneralized = false;
 	Oracle& oracle;
 	std::unordered_set<std::string> considered;
@@ -531,6 +540,7 @@ public:
 	Grammar
 	synthesize() {
 		bool isGeneralized = true;
+		GeneralizeVisitor generalizeVisitor(oracle);
 		PrintVisitor ps;
 		std::cout << "old grammar: [";
 		for (Node* node : grammar) {
@@ -541,10 +551,10 @@ public:
 		int count = 0;
 		while (isGeneralized) {
 			isGeneralized = false;
+			generalizeVisitor.init(grammar);
 			// todo: context must be generated at language level not withing generalization
 			for (int i = grammar.size() - 1; i >= 0; i--) {
 				Node* toGeneralize = grammar[i];
-				GeneralizeVisitor generalizeVisitor(toGeneralize, oracle); //todo make this reusable
 				Grammar newGrammar = toGeneralize->accept(generalizeVisitor);
 
 				if (generalizeVisitor.checkGeneralized()) {
