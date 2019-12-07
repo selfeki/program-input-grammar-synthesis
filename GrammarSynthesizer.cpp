@@ -374,7 +374,6 @@ public:
 		std::string alpha = repNode->getTerminal();
 		std::string sub1, sub2, sub3;
 		int length = alpha.length();
-		Grammar candidate;
 		std::cout << "decomposing \'" << alpha << "\'" << std::endl;
 		// primary priority for shorter sub1
 		for (int i = 0; i < length; i++) {
@@ -405,6 +404,7 @@ public:
 					RepNode* 			decmp3 = new RepNode(sub3);
 					decmp2->addChild(new AltNode(sub2));
 
+					Grammar candidate;
 					if (sub1.length() > 0) { candidate.push_back(decmp1); }
 					// sub2 is never empty
 					candidate.push_back(decmp2);
@@ -428,8 +428,7 @@ public:
 		std::cout << "exhausted all candidates" << std::endl;
 		// exit(-1);
 		// last resort generalization
-		candidate.push_back(new TerminalNode(alpha));
-		return candidate;
+		return {new TerminalNode(alpha)};;
 	}
 
 	Grammar
@@ -448,7 +447,6 @@ public:
 		std::string alpha = altNode->getTerminal();
 		std::string sub1, sub2;
 		int length = alpha.length();
-		Grammar candidate;
 		std::cout << "decomposing \'" << alpha << "\'" << std::endl;
 		// priority for shorter sub1
 		for (int i = 1; i < length; i++) {
@@ -476,6 +474,7 @@ public:
 				plus->addChild(rep);
 				plus->addChild(alt);
 
+				Grammar candidate;
 				candidate.push_back(plus);
 
 				std::cout << "all checks pass!" << std::endl;
@@ -493,8 +492,7 @@ public:
 		}
 		std::cout << "exhausted all candidates" << std::endl;
 		// last resort generalization
-		candidate.push_back(new RepNode(alpha));
-		return candidate;
+		return {new RepNode(alpha)};;
 	}
 
 	std::string getGrammarString(Grammar& grammar) {
@@ -582,7 +580,7 @@ public:
 				std::cout << ", ";
 			}
 			std::cout << " ]" << std::endl;
-			if (count == 2) { exit(-1); }
+			if (count == 4) { exit(-1); }
 			count++;
 		}
 		return grammar;
