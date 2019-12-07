@@ -351,7 +351,10 @@ public:
 
 	std::vector<std::string>
 	getRepResiduals(std::string sub1, std::string sub2, std::string sub3) {
-		return {sub1.append(sub3), sub1.append(sub2).append(sub2).append(sub3)};
+		std::string res1, res2;
+		res1.append(sub1).append(sub3);
+		res2.append(sub1).append(sub2).append(sub2).append(sub3);
+		return {res1, res2};
 	}
 
 	Grammar
