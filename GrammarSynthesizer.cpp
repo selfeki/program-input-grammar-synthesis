@@ -17,6 +17,8 @@ class RepNode;
 class AltNode;
 class TerminalNode;
 class NonGeneralizableNode;
+class StarNode;
+class PlusNode;
 
 
 typedef std::vector<Node*> Grammar;
@@ -32,7 +34,9 @@ public:
   virtual Grammar visit(RepNode* repNode) { return {}; }
   virtual Grammar visit(AltNode* altNode) {	return {}; }
   virtual Grammar visit(TerminalNode* terminalNode) {	return {}; }
-	virtual Grammar visit(NonGeneralizableNode* starNode) {	return {}; }
+	virtual Grammar visit(NonGeneralizableNode* nonGenNode) {	return {}; }
+	virtual Grammar visit(StarNode* starNode) {	return {}; }
+	virtual Grammar visit(PlusNode* plusNode) {	return {}; }
 };
 
 
@@ -98,16 +102,72 @@ private:
 };
 
 
-class StarNode : public NonGeneralizableNode {};
+class StarNode : public NonGeneralizableNode {
+public:
+	virtual Grammar accept(NodeVisitor& visitor) { return visitor.visit(this); }
+};
 
 
-class PlusNode : public NonGeneralizableNode {};
+class PlusNode : public NonGeneralizableNode {
+public:
+	virtual Grammar accept(NodeVisitor& visitor) { return visitor.visit(this); }
+};
 
 struct Context {
 	std::string left;
 	std::string right;
 };
 
+
+class PrintVisitor : public NodeVisitor {
+public:
+  Grammar
+	visit(RepNode* repNode) {
+		std::string terminal = repNode->getTerminal();
+		// if (terminal.length() > 0) {
+			std::cout << "[ " << terminal << " ]rep";
+		// }
+		return {};
+	}
+
+	Grammar
+	visit(AltNode* altNode) { 
+		std::string terminal = altNode->getTerminal();
+		// if (terminal.length() > 0) {
+			std::cout << "[ " << terminal << " ]alt";
+		// }		
+		return {};
+	}
+
+	Grammar
+	visit(PlusNode* plusNode) {
+		Grammar grammar = plusNode->getGrammar();
+		Node* left  = grammar[0];
+		Node* right = grammar[1];
+		std::cout << "( ";
+		left->accept(*this);
+		std::cout << " + ";
+		right->accept(*this);
+		std::cout << " )";
+		return {};
+	}
+
+	Grammar
+	visit(StarNode* starNode) {
+		std::cout << "( ";
+		for (Node* node : starNode->getGrammar()) {
+			node->accept(*this);
+		}
+		std::cout << " )*";
+		return {};
+	}
+
+	Grammar
+	visit(TerminalNode* terminalNode) { 
+		std::cout << terminalNode->getTerminal();
+		return {};
+	}
+};
 
 class GetContextVisitor: public NodeVisitor {
 public:
@@ -211,15 +271,23 @@ public:
 
 	Grammar
 	visit(RepNode* repNode) {
+		PrintVisitor ps;
+		std::cout << "Generalizing repNode ";
+		repNode->accept(ps);
+		std::cout << std::endl;
+		
 		if (isGeneralized) { return {}; }
 		GetContextVisitor getContextVisitor(root, repNode);
 		root->accept(getContextVisitor);
 		Context context = getContextVisitor.getContext();
-
+		
+		std::cout << "context = (" << context.left << ", " << context.right << ")" << std::endl;
+		// exit(-1);
 		std::string alpha = repNode->getTerminal();
 		std::string sub1, sub2, sub3;
 		int length = alpha.length();
 		Grammar candidate;
+		std::cout << "decomposing \'" << alpha << "\'" << std::endl;
 		// primary priority for shorter sub1
 		for (int i = 0; i < length; i++) {
 			// sedondary priority for longer sub2
@@ -229,23 +297,45 @@ public:
 				sub3 = alpha.substr(j, length - j);
 				std::vector<std::string> residuals = getRepResiduals(sub1, sub2, sub3);
 
+				std::cout << "\'" <<  sub1 << "\'" << std::endl;
+				std::cout << "\'" <<  sub2 << "\'" << std::endl;
+				std::cout << "\'" <<  sub3 << "\'" << std::endl;
+
+				bool isPrecisionPreserving = true;
 				for (std::string res : residuals) {
 					std::string check = context.left.append(res).append(context.right);
-					if (oracle.query(check)) {
-						TerminalNode* decmp1 = new TerminalNode(sub1);
-						StarNode* 		decmp2 = new StarNode();
-						RepNode* 			decmp3 = new RepNode(sub3);
-						decmp2->addChild(new AltNode(sub2));
-
-						candidate.push_back(decmp1);
-						candidate.push_back(decmp2);
-						candidate.push_back(decmp3);
-						isGeneralized = true;
-						return candidate;
+					if (!oracle.query(check)) {
+						isPrecisionPreserving = false;
+						break;
 					}
+				}
+
+				if (isPrecisionPreserving) {
+					TerminalNode* decmp1 = new TerminalNode(sub1);
+					StarNode* 		decmp2 = new StarNode();
+					RepNode* 			decmp3 = new RepNode(sub3);
+					decmp2->addChild(new AltNode(sub2));
+
+					if (sub1.length() > 0) { candidate.push_back(decmp1); }
+					// sub2 is never empty
+					candidate.push_back(decmp2);
+					if (sub3.length() > 0) { candidate.push_back(decmp3); }
+
+					std::cout << "all checks pass!" << std::endl;
+					PrintVisitor ps;
+					std::cout << "candidate is ";
+					for (Node* node : candidate) {
+						node->accept(ps);
+					}
+					std::cout << std::endl;
+
+					isGeneralized = true;
+					return candidate;
 				}
 			}
 		}
+		std::cout << "exhausted all candidates" << std::endl;
+		exit(-1);
 		// last resort generalization
 		candidate.push_back(new TerminalNode(alpha));
 		isGeneralized = true;
@@ -254,25 +344,40 @@ public:
 
 	Grammar
 	visit(AltNode* altNode) {
+		PrintVisitor ps;
+		std::cout << "Generalizing altNode ";
+		altNode->accept(ps);
+		std::cout << std::endl;
+
 		if (isGeneralized) { return {}; }
 		GetContextVisitor getContextVisitor(root, altNode);
 		root->accept(getContextVisitor);
 		Context context = getContextVisitor.getContext();
 
+		std::cout << "context = (" << context.left << ", " << context.right << ")" << std::endl;
 		std::string alpha = altNode->getTerminal();
 		std::string sub1, sub2;
 		int length = alpha.length();
 		Grammar candidate;
+		std::cout << "decomposing \'" << alpha << "\'" << std::endl;
 		// priority for shorter sub1
 		for (int i = 1; i < length; i++) {
 			sub1 = alpha.substr(0, i);
 			sub2 = alpha.substr(i, length-i);
 			std::vector<std::string> residuals = {sub1, sub2};
 
+				std::cout << "\'" <<  sub1 << "\'" << std::endl;
+				std::cout << "\'" <<  sub2 << "\'" << std::endl;
+
+				bool isPrecisionPreserving = true;
 			for (std::string res : residuals) {
 				std::string check = context.left.append(res).append(context.right);
-				if (oracle.query(check)) {
+				if (!oracle.query(check)) {
+					isPrecisionPreserving = false;
+					break;
+				}
 
+				if (isPrecisionPreserving) {
 					RepNode* rep	 = new RepNode(sub1);
 					AltNode* alt	 = new AltNode(sub2);
 					PlusNode* plus = new PlusNode();
@@ -280,6 +385,14 @@ public:
 					plus->addChild(alt);
 
 					candidate.push_back(plus);
+
+					std::cout << "all checks pass!" << std::endl;
+					std::cout << "candidate is ";
+					for (Node* node : candidate) {
+						node->accept(ps);
+					}
+					std::cout << std::endl;
+
 					isGeneralized = true;
 					return candidate;
 				}
@@ -300,51 +413,6 @@ private:
 };
 
 
-class PrintVisitor : public NodeVisitor {
-public:
-  Grammar
-	visit(RepNode* repNode) { 
-		std::cout << "[ " << repNode->getTerminal() << " ]rep";
-		return {};
-	}
-
-	Grammar
-	visit(AltNode* altNode) { 
-		std::cout << "[ " << altNode->getTerminal() << " ]alt";
-		return {};
-	}
-
-	Grammar
-	visit(PlusNode* plusNode) {
-		Grammar grammar = plusNode->getGrammar();
-		Node* left  = grammar[0];
-		Node* right = grammar[1];
-		std::cout << "( ";
-		left->accept(*this);
-		std::cout << " + ";
-		right->accept(*this);
-		std::cout << " )";
-		return {};
-	}
-
-	Grammar
-	visit(StarNode* starNode) {
-		std::cout << "( ";
-		for (Node* node : starNode->getGrammar()) {
-			node->accept(*this);
-		}
-		std::cout << " )*";
-		return {};
-	}
-
-	Grammar
-	visit(TerminalNode* terminalNode) { 
-		std::cout << terminalNode->getTerminal();
-		return {};
-	}
-};
-
-
 class GrammarSynthesizer {
 public:
 	GrammarSynthesizer(std::string seed, Oracle& orcl)
@@ -355,23 +423,42 @@ public:
 	Grammar
 	synthesize() {
 		bool isGeneralized = true;
-
+		PrintVisitor ps;
+		std::cout << "old grammar: ";
+		for (Node* node : grammar) {
+			node->accept(ps);
+		}
+		std::cout << std::endl;
+		int count = 0;
 		while (isGeneralized) {
 			isGeneralized = false;
 
 			for (int i = grammar.size() - 1; i >= 0; i--) {
-				Node* root = grammar[i];
-				GeneralizeVisitor generalizeVisitor(root, oracle);
-				Grammar newGrammar = root->accept(generalizeVisitor);
+				Node* toGeneralize = grammar[i];
+				GeneralizeVisitor generalizeVisitor(toGeneralize, oracle);
+				Grammar newGrammar = toGeneralize->accept(generalizeVisitor);
 
 				if (generalizeVisitor.checkGeneralized()) {
 					isGeneralized = true;
+					// if generalized node was a root,
+					// must manually update the grammar
+					// else replacement happens in GeneralizeVisitor
 					if (newGrammar.size() > 0) {
-						grammar.insert(grammar.begin()+i, newGrammar.begin(), newGrammar.end());
+						auto it  = std::find (grammar.begin(), grammar.end(), toGeneralize);
+						auto loc = grammar.erase(it);
+						grammar.insert(loc, newGrammar.begin(), newGrammar.end());
 					}
 					break;
 				}
 			}
+			// star.accept(ps);
+			std::cout << "new grammar: ";
+			for (Node* node : grammar) {
+				node->accept(ps);
+			}
+			std::cout << std::endl;
+			if (count == 1) { exit(-1); }
+			count++;
 		}
 		return grammar;
 	}
@@ -390,11 +477,16 @@ using namespace grammarSynthesizer;
 class XMLOracle : public Oracle{
 public:
 	virtual bool query(std::string check) {
+		std::cout << "checking \'" << check << "\'" << std::endl;
 		try{
-			parser.parse_memory(check);
+			// create wrapper  
+			// because valid xml must have a root node
+			std::string wrapper = "<i> ";
+			wrapper.append(check).append("</i>");
+			parser.parse_memory(wrapper);
 		}
 		catch(const std::exception& e) {
-			std::cout << "check failed:	"<< check << std::endl;
+			std::cout << " -  failed" << std::endl;
 			return false;
 		}
 		return true;
@@ -405,14 +497,21 @@ public:
 };
 
 int main() {
-	std::string seed = "<to>Tove</to>";
+	std::string seed = "<to>Tove</to><to>Tove</to>";
 	XMLOracle oracle;
 	GrammarSynthesizer gs(seed, oracle);
 	Grammar grammar = gs.synthesize();
 
+	StarNode star;
+	TerminalNode terminal("test");
+	star.addChild(&terminal);
+	
 	PrintVisitor ps;
+	// star.accept(ps);
 	for (Node* node : grammar) {
 		node->accept(ps);
 	}
+
+	// std::cout << oracle.query(seed);
 	return 0;
 }
