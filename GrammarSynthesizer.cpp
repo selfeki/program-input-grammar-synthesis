@@ -327,26 +327,36 @@ public:
 		for (auto it = grammar.rbegin(); it != grammar.rend(); ++it) {
 			Node* node = *it;
 			Grammar newGrammar = node->accept(*this);
-			if (isGeneralized) {
+			if (isGeneralized && newGrammar.size() > 0) {
 				starNode->replaceGrammarAt(newGrammar, node);
 				break;
 			}
 		}
-		return {};
+		std::cout << "grammar replacement - after: ";
+		starNode->accept(pv);
+		std::cout << std::endl;
+		return {starNode};
 	}
 
 	Grammar
 	visit(PlusNode* plusNode) {
+		std::cout << "grammar replacement - before: ";
+		PrintVisitor pv;
+		plusNode->accept(pv);
+		std::cout << std::endl;
 		Grammar grammar = plusNode->getGrammar();
 		for (auto it = grammar.rbegin(); it != grammar.rend(); ++it) {
 			Node* node = *it;
 			Grammar newGrammar = node->accept(*this);
-			if (isGeneralized) {
+			if (isGeneralized && newGrammar.size() > 0) {
 				plusNode->replaceGrammarAt(newGrammar, node);
 				break;
 			}
 		}
-		return {};
+		std::cout << "grammar replacement - after: ";
+		plusNode->accept(pv);
+		std::cout << std::endl;
+		return {plusNode};
 	}
 
 	std::vector<std::string>
@@ -580,7 +590,7 @@ public:
 				std::cout << ", ";
 			}
 			std::cout << " ]" << std::endl;
-			if (count == 4) { exit(-1); }
+			if (count == 6) { exit(-1); }
 			count++;
 		}
 		return grammar;
