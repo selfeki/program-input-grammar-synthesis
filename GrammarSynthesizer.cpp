@@ -2,9 +2,15 @@
 #include <string>
 #include <list>
 #include <vector>
-#include <functional>
+#include <iostream>
+#include <stdlib.h>
 
-namespace GrammarSynthesizer {
+#include <libxml++/libxml++.h>
+#include <libxml++/parsers/textreader.h>
+#include <glibmm/ustring.h>
+
+
+namespace grammarSynthesizer {
 
 class Node;
 class RepNode;
@@ -15,6 +21,11 @@ class NonGeneralizableNode;
 
 typedef std::vector<Node*> Grammar;
 
+
+class Oracle {
+public:
+	virtual bool query(std::string check) = 0;
+};
 
 class NodeVisitor {
 public:
@@ -159,9 +170,9 @@ private:
 
 class GeneralizeVisitor : public NodeVisitor {
 public:
-	GeneralizeVisitor(Node* r, std::function<bool (std::string)> predFunc)
+	GeneralizeVisitor(Node* r, Oracle& orcl)
 	: root(r),
-		oracle(predFunc)
+		oracle(orcl)
 	{}
 
 	std::vector<std::string>
@@ -220,7 +231,7 @@ public:
 
 				for (std::string res : residuals) {
 					std::string check = context.left.append(res).append(context.right);
-					if (oracle(check)) {
+					if (oracle.query(check)) {
 						TerminalNode* decmp1 = new TerminalNode(sub1);
 						StarNode* 		decmp2 = new StarNode();
 						RepNode* 			decmp3 = new RepNode(sub3);
@@ -241,7 +252,6 @@ public:
 		return candidate;
 	}
 
-
 	Grammar
 	visit(AltNode* altNode) {
 		if (isGeneralized) { return {}; }
@@ -261,7 +271,7 @@ public:
 
 			for (std::string res : residuals) {
 				std::string check = context.left.append(res).append(context.right);
-				if (oracle(check)) {
+				if (oracle.query(check)) {
 
 					RepNode* rep	 = new RepNode(sub1);
 					AltNode* alt	 = new AltNode(sub2);
@@ -281,23 +291,69 @@ public:
 		return candidate;
 	}
 
-bool checkGeneralized() { return isGeneralized; }
+	bool checkGeneralized() { return isGeneralized; }
 
 private:
 	Node* root;
 	bool isGeneralized = false;
-	std::function<bool (std::string)> oracle;
-	
+	Oracle& oracle;
+};
+
+
+class PrintVisitor : public NodeVisitor {
+public:
+  Grammar
+	visit(RepNode* repNode) { 
+		std::cout << "[ " << repNode->getTerminal() << " ]rep";
+		return {};
+	}
+
+	Grammar
+	visit(AltNode* altNode) { 
+		std::cout << "[ " << altNode->getTerminal() << " ]alt";
+		return {};
+	}
+
+	Grammar
+	visit(PlusNode* plusNode) {
+		Grammar grammar = plusNode->getGrammar();
+		Node* left  = grammar[0];
+		Node* right = grammar[1];
+		std::cout << "( ";
+		left->accept(*this);
+		std::cout << " + ";
+		right->accept(*this);
+		std::cout << " )";
+		return {};
+	}
+
+	Grammar
+	visit(StarNode* starNode) {
+		std::cout << "( ";
+		for (Node* node : starNode->getGrammar()) {
+			node->accept(*this);
+		}
+		std::cout << " )*";
+		return {};
+	}
+
+	Grammar
+	visit(TerminalNode* terminalNode) { 
+		std::cout << terminalNode->getTerminal();
+		return {};
+	}
 };
 
 
 class GrammarSynthesizer {
-	GrammarSynthesizer(std::string seed)
-		: grammar({new RepNode(seed)}) 
+public:
+	GrammarSynthesizer(std::string seed, Oracle& orcl)
+		: grammar({new RepNode(seed)}) ,
+			oracle(orcl)
 		{}
 
 	Grammar
-	synthesizeGrammar() {
+	synthesize() {
 		bool isGeneralized = true;
 
 		while (isGeneralized) {
@@ -322,12 +378,41 @@ class GrammarSynthesizer {
 
 private:
 	std::vector<Node *> grammar;
-	std::function<bool (std::string)> oracle;
+	Oracle& oracle;
 };
 
 
 }
 
+using namespace grammarSynthesizer;
+
+
+class XMLOracle : public Oracle{
+public:
+	virtual bool query(std::string check) {
+		try{
+			parser.parse_memory(check);
+		}
+		catch(const std::exception& e) {
+			std::cout << "check failed:	"<< check << std::endl;
+			return false;
+		}
+		return true;
+	}
+
+	private:
+	xmlpp::DomParser parser;
+};
+
 int main() {
+	std::string seed = "<to>Tove</to>";
+	XMLOracle oracle;
+	GrammarSynthesizer gs(seed, oracle);
+	Grammar grammar = gs.synthesize();
+
+	PrintVisitor ps;
+	for (Node* node : grammar) {
+		node->accept(ps);
+	}
 	return 0;
 }
