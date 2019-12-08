@@ -411,8 +411,9 @@ public:
 				if (isPrecisionPreserving) {
 					TerminalNode* decmp1 = new TerminalNode(sub1);
 					StarNode* 		decmp2 = new StarNode();
+					AltNode*			alt    = new AltNode(sub2);
+					decmp2->addChild(alt);
 					RepNode* 			decmp3 = new RepNode(sub3);
-					decmp2->addChild(new AltNode(sub2));
 
 					Grammar candidate;
 					if (sub1.length() > 0) { candidate.push_back(decmp1); }
@@ -428,8 +429,12 @@ public:
 					}
 					std::cout << std::endl;
 
-					if (!isPreviouslyConsidered(candidate)) {
+					if (!(isPreviouslyConsidered(candidate) || // should work without this term
+								isPreviouslyConsidered({alt}) ||
+								isPreviouslyConsidered({decmp3}))) {
 						blackListCandidate(candidate);
+						blackListCandidate({alt});
+						blackListCandidate({decmp3});
 						return candidate;
 					}
 				}
@@ -494,8 +499,12 @@ public:
 				}
 				std::cout << std::endl;
 
-				if (!isPreviouslyConsidered(candidate)) {
+				if (!(isPreviouslyConsidered(candidate) || // should work without this term
+							isPreviouslyConsidered({rep}) ||
+							isPreviouslyConsidered({alt}))) {
 					blackListCandidate(candidate);
+					blackListCandidate({rep});
+					blackListCandidate({alt});
 					return candidate;
 				}
 			}
@@ -514,13 +523,13 @@ public:
 	}
 
 	bool 
-	isPreviouslyConsidered(Grammar& grammar) {
+	isPreviouslyConsidered(Grammar grammar) {
 		std::string str = getGrammarString(grammar);
 		return considered.count(str);
 	}
 
 	void
-	blackListCandidate(Grammar& candidate) {
+	blackListCandidate(Grammar candidate) {
 		std::string str = getGrammarString(candidate);
 		considered.insert(str);
 	}
@@ -590,7 +599,6 @@ public:
 				std::cout << ", ";
 			}
 			std::cout << " ]" << std::endl;
-			if (count == 6) { exit(-1); }
 			count++;
 		}
 		return grammar;
